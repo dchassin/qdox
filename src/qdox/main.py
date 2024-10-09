@@ -97,6 +97,14 @@ Text Formatting:
     * ``text``: `code` text
 
     * `protocol://url/`: protocol://url/ formatting with active link
+
+Pro-tips:
+
+    The module you are documenting must be installed in the active Python
+    environment for `qdox` to read information about the module. 
+
+    If you want to output a colon at the end of a paragraph rather than a
+    heading, place a space after the colon and before the end-of-line.
 """
 
 #
@@ -149,11 +157,11 @@ def _main(argv:list[str]) -> int:
 
     if len(argv) == 0:
         print([x for x in __doc__.split("\n") if x.startswith("Syntax: ")][0])
-        return 0
+        return E_OK
 
     if argv[0] in ["-h","--help","help"]:
         print(__doc__)
-        return 1
+        return E_ERROR
 
     for arg in argv:
         key,value = arg.split("=",1) if "=" in arg else (arg,None)
@@ -208,17 +216,17 @@ def _main(argv:list[str]) -> int:
             if md:
                 rules = {
                     # False indicates result is protected from remaining rules once applied
-                    r"``": (r"`",False),
-                    r"`([^`]+)`": (r"<code>\1</code>",False),
+                    r"``": [r"`",False],
+                    r"`([^`]+)`": [r"<code>\1</code>",False],
                     r"([a-z]+)://([A-Za-z0-9/.:@+_?&]+)": 
-                        (r"""<a href="\1://\2" target="_tab">\1://\2</a>""",False),
-                    r"\*\*([^\*]+)\*\*": (r"<b>\1</b>",True),
-                    r"\*([^\*]+)\*": (r"<i>\1</i>",True),
-                    r"~~([^\+]+)~~": (r"<strike>\1</strike>",True),
-                    r"__([^\+]+)__": (r"<u>\1</u>",True),
-                    r"!!([^\+]+)!!": (r"""<font class="highlight">\1</font>""",True),
-                    r"_([^ ]+)": (r"<sub>\1</sub>",True),
-                    r"\^([^ ]+)": (r"<sup>\1</sup>",True),
+                        [r"""<a href="\1://\2" target="_tab">\1://\2</a>""",False],
+                    r"\*\*([^\*]+)\*\*": [r"<b>\1</b>",True],
+                    r"\*([^\*]+)\*": [r"<i>\1</i>",True],
+                    r"~~([^\+]+)~~": [r"<strike>\1</strike>",True],
+                    r"__([^\+]+)__": [r"<u>\1</u>",True],
+                    r"!!([^\+]+)!!": [r"""<font class="highlight">\1</font>""",True],
+                    r"_([^ ]+)": [r"<sub>\1</sub>",True],
+                    r"\^([^ ]+)": [r"<sup>\1</sup>",True],
                 }
                 hold = []
                 for search,replace in rules.items():
@@ -248,15 +256,13 @@ def _main(argv:list[str]) -> int:
             if set_mode.pre:
                 write_html("</pre>")
                 set_mode.pre = False
+            if set_mode.li:
+                write_html("</li>")
+                set_mode.li = False
             if m == "li":
                 write_html("<li>")
                 set_mode.li = True
                 return old
-            if set_mode.li:
-                write_html("</li>")
-                set_mode.li = False
-            if set_mode.pre:
-                write_html("</pre>")
             if set_mode.mode and set_mode.mode != m:
                 set_mode.pre = False
                 if set_mode.mode in ["ul","ol"]:
@@ -270,8 +276,149 @@ def _main(argv:list[str]) -> int:
         set_mode.mode = None
         set_mode.pre = False
         set_mode.li = False
+
         def get_mode():
             return set_mode.mode
+
+        def write_class(name,value):
+            if isinstance(value.__doc__,str) and hasattr(value.__init__,"__annotations__"):
+                write_html(f"""\n<h2 class="w3-container">{name}</h2><p/>""")
+                
+                for line in value.__doc__.split("\n"):
+                    if len(line) == 0:
+                        if get_mode() is None:
+                            write_html("<p/>")
+                    elif line.startswith("        "):
+                        set_mode("ul")
+                        part = line.strip().split(": ",1)
+                        if len(part) == 2:
+                            write_html(f"<li><code>{part[0]}</code>: ",md=False,nl=False)
+                            write_html(f"{part[1]}</li>",nl=True)
+                        else:
+                            write_html(f"<li>{part[0]}</li>",md=True,nl=True)
+                    elif line.startswith("      "):
+                        set_mode("pre")
+                        write_html(line.strip(),md=False,nl=True)
+                    elif line.startswith("    "):
+                        set_mode(None)
+                        if line.strip().endswith(":"):
+                            write_html(f"""<h3 class="w3-container">{line.strip()[:-1]}</h3>""",nl=True)
+                        else:
+                            write_html(f"<p/>{line}",md=True,nl=True)
+                    else:
+                        set_mode(None)
+                        write_html(line,md=True,nl=True)
+
+                write_html(f"""\n<h3 class="w3-container"><code><b>{name}</b>(""")
+                args = [(f"<b>{str(a)}</b>:" +
+                        re.sub(r'([A-Za-z]+)',r'<i>\1</i>',b.__name__)
+                        if hasattr(b,"__name__") else str(b))
+                    for a,b in value.__init__.__annotations__.items() if not a in ["self","return"]]
+                write_html(", ".join(args))
+                write_html(")")
+                write_html("</code></h3>\n<p/>")
+
+                for line in value.__init__.__doc__.split("\n"):
+                    if len(line) == 0:
+                        if get_mode() is None:
+                            write_html("<p/>")
+                    elif line.startswith("            "):
+                        set_mode("ul")
+                        part = line.strip().split(": ",1)
+                        if len(part) == 2:
+                            write_html(f"<li><code>{part[0]}</code>: ",md=False,nl=False)
+                            write_html(f"{part[1]}</li>",nl=True)
+                        else:
+                            write_html(f"<li>{part[0]}</li>",md=True,nl=True)
+                    elif line.startswith("        ") and line.strip().endswith(":"):
+                        set_mode(None)
+                        write_html(f"""<h4 class="w3-container">{line.strip()[:-1]}</h4>""",nl=True)
+                    else:
+                        set_mode(None)
+                        write_html(line,md=True,nl=True)
+
+            for item in dir(value):
+                if item.startswith("_"):
+                    continue
+                ival = getattr(value,item)
+                set_mode(None)
+                if callable(ival):
+                    write_method(".".join([name,item]),ival)
+                set_mode(None)
+
+        def write_method(name,value):
+            if isinstance(value.__doc__,str) and hasattr(value,"__annotations__"):
+                write_html(f"""\n<h3 class="w3-container"><code><b>{name}</b>(""")
+                args = [(f"<b>{str(a)}</b>:" +
+                        re.sub(r'([A-Za-z]+)',r'<i>\1</i>',b.__name__)
+                        if hasattr(b,"__name__") else str(b))
+                    for a,b in value.__annotations__.items() if not a in ["self","return"]]
+                write_html(", ".join(args))
+                write_html(")")
+                try:
+                    c = value.__annotations__["return"]
+                    c = c.__name__ if hasattr(c,"__name__") else str(c)
+                    write_html(f" &rightarrow; *{c}*")
+                except KeyError:
+                    write_html(" &rightarrow; *None*")
+                write_html("</code></h3>\n<p/>")
+
+                for line in value.__doc__.split("\n"):
+                    if len(line) == 0:
+                        if get_mode() is None:
+                            write_html("<p/>")
+                    elif line.startswith("            "):
+                        set_mode("ul")
+                        part = line.strip().split(":",1)
+                        if len(part) == 2:
+                            write_html(f"<li><code>{part[0]}</code>: ",md=False,nl=False)
+                            write_html(f"{part[1]}</li>",nl=True)
+                        else:
+                            write_html(f"<li>{part[0]}</li>",md=True,nl=True)
+                    elif line.startswith("        ") and line.strip().endswith(":"):
+                        set_mode(None)
+                        write_html(f"""<h4 class="w3-container">{line.strip()[:-1]}</h4>""",nl=True)
+                    else:
+                        set_mode(None)
+                        write_html(line,md=True,nl=True)
+
+        def write_function(name,value):
+            if isinstance(value.__doc__,str):
+                write_html(f"""\n<h2 class="w3-container"><code><b>{name}</b>(""")
+                args = [(f"<b>{str(a)}</b>:" +
+                        re.sub(r'([A-Za-z]+)',r'<i>\1</i>',b.__name__)
+                        if hasattr(b,"__name__") else str(b))
+                    for a,b in value.__annotations__.items() if a != "return"]
+                write_html(", ".join(args))
+                write_html(")")
+                try:
+                    c = value.__annotations__["return"]
+                    c = c.__name__ if hasattr(c,"__name__") else str(c)
+                    write_html(f" &rightarrow; *{c}*")
+                except KeyError:
+                    write_html(" &rightarrow; *None*")
+                write_html("</code></h2>\n<p/>")
+
+                for line in value.__doc__.split("\n"):
+                    if len(line) == 0:
+                        if get_mode() is None:
+                            write_html("<p/>")
+                    elif line.startswith("        "):
+                        set_mode("ul")
+                        part = line.strip().split(": ",1)
+                        if len(part) == 2:
+                            write_html(f"<li><code>{part[0]}</code>: ",md=False,nl=False)
+                            write_html(f"{part[1]}</li>",nl=True)
+                        else:
+                            write_html(f"<li>{part[0]}</li>",md=True,nl=True)
+                    elif line.startswith("    ") and line.strip().endswith(":"):
+                        set_mode(None)
+                        write_html(f"""<h3 class="w3-container">{line.strip()[:-1]}</h3>""",nl=True)
+                    else:
+                        set_mode(None)
+                        write_html(line,md=True,nl=True)
+            else:
+                print(f"WARNING: function '{name}' has no __doc__")
 
         write_html(f"""<!doctype html>
     <html>
@@ -307,6 +454,12 @@ def _main(argv:list[str]) -> int:
         # document main docs
         for line in module.__doc__.split("\n"):
             if len(line) == 0:
+                if set_mode.pre:
+                    set_mode.pre = False
+                    write_html("</pre>")
+                if set_mode.li:
+                    set_mode.li = False
+                    write_html("</li>")
                 if get_mode() is None:
                     write_html("<p/>")
 
@@ -331,8 +484,8 @@ def _main(argv:list[str]) -> int:
             elif line.startswith("    * "):
                 set_mode("ul")
                 line = line.split('*',1)[1][1:]
-                if ":" in line:
-                    part = line.split(":",1)
+                if ": " in line:
+                    part = line.split(": ",1)
                     set_mode("li")
                     write_html(f"\n<code>{part[0]}</code>: {part[1]}")
                 elif line.strip():
@@ -350,7 +503,7 @@ def _main(argv:list[str]) -> int:
             # preformatted
             elif line.startswith("    "):
                 set_mode("pre")
-                write_html(line[4:],nl=True)
+                write_html(line[4:],md=False,nl=True)
 
             # heading
             elif line.endswith(":") and not line.startswith(" "):
@@ -367,50 +520,17 @@ def _main(argv:list[str]) -> int:
 
         # document functions
         for name in dir(module):
-            set_mode(None)
             if name.startswith("_"):
                 continue
             value = getattr(module,name)
-            if callable(value):
-                if isinstance(value.__doc__,str):
-                    write_html(f"""\n<h2 class="w3-container"><code><b>{name}</b>(""")
-                    args = [(f"<b>{str(a)}</b>:" +
-                            re.sub(r'([A-Za-z]+)',r'<i>\1</i>',b.__name__)
-                            if hasattr(b,"__name__") else str(b))
-                        for a,b in value.__annotations__.items() if a != "return"]
-                    write_html(", ".join(args))
-                    write_html(")")
-                    try:
-                        c = value.__annotations__["return"]
-                        c = c.__name__ if hasattr(c,"__name__") else str(c)
-                        write_html(f" &rightarrow; *{c}*")
-                    except KeyError:
-                        write_html(" &rightarrow; *None*")
-                    write_html("</code></h2>\n<p/>")
-
-                    for line in value.__doc__.split("\n"):
-                        if len(line) == 0:
-                            if get_mode() is None:
-                                write_html("<p/>")
-                        elif line.startswith("    ") and line.strip().endswith(":"):
-                            set_mode(None)
-                            write_html(f"""<h3 class="w3-container">{line.strip()[:-1]}</h3>""",nl=True)
-                        elif line.startswith("        "):
-                            set_mode("ul")
-                            part = line.strip().split(":",1)
-                            if len(part) == 2:
-                                write_html(f"<li><code>{part[0]}</code>: ",md=False,nl=False)
-                                write_html(f"{part[1]}</li>",nl=True)
-                            else:
-                                write_html(f"<li>{part[0]}</li>",md=True,nl=True)
-                        else:
-                            set_mode(None)
-                            write_html(f"{line}",md=True,nl=True)
-                else:
-                    print(f"WARNING: function '{name}' has no __doc__")
+            set_mode(None)
+            if isinstance(value,type):
+                write_class(name,value)
+            elif callable(value):
+                write_function(name,value)
             set_mode(None)
 
-        # document metadata
+        # document constants
         constant_header = False
         for name in dir(module):
             if name.startswith("__"):
@@ -420,8 +540,9 @@ def _main(argv:list[str]) -> int:
                 if not constant_header:
                     write_html("""<h2 class="w3-container">Python Constants</h2>""")
                     constant_header = True
-                write_html(f"<p/>`{name} = {value}`")
+                write_html(f"<p/>`{name} = {repr(value)}`")
 
+        # document metadata
         write_html("""\n<h1 id="package" class="w3-container">Package Metadata</h1>\n""")
         write_html("""<p/><table class="w3-container">\n""")
         for key,data in package.items():
